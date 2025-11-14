@@ -298,7 +298,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int128 liquidityDelta;
     }
 
-    /// @dev Effect some changes to a position
+    /// @dev Effect some changes to a position 
     /// @param params the position details and the change to the position's liquidity to effect
     /// @return position a storage pointer referencing the position with the given owner and tick range
     /// @return amount0 the amount of token0 owed to the pool, negative if the pool should pay the recipient
