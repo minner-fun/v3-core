@@ -54,9 +54,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     uint128 public immutable override maxLiquidityPerTick;
 
     struct Slot0 {
-        // the current price
+        // the current price 当前的 $\sqrt{P}$
         uint160 sqrtPriceX96;
-        // the current tick
+        // the current tick 
         int24 tick;
         // the most-recently updated index of the observations array
         uint16 observationIndex;
@@ -454,6 +454,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
+    // 添加流动性
+    // @param recipient 接收流动性的人
+    // @param tickLower 下界tick
+    // @param tickUpper 上界tick
+    // @param amount 流动性数量
+    // @param data 数据
+    // @return amount0 需要提供的token0数量
+    // @return amount1 需要提供的token1数量
     function mint(
         address recipient,
         int24 tickLower,
