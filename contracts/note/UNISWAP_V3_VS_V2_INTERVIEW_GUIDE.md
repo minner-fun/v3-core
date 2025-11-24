@@ -32,7 +32,8 @@ $$\sqrt{p(i)} = \sqrt{1.0001}^i = 1.0001 ^{\frac{i}{2}}$$
 $$1.0001 ^{\frac{i}{2}} => [2^{-128}, 2^{128}] $$
 i 的取值范围为：
 $$[log_{1.0001}2^{-128}, log_{1.0001}{2^{128}}] = [-887272, 887272]$$
-i就是tick的值
+i就是tick的值  
+> 先界定价格范围，在通过取价格的对数的方式，巧妙的把流动性区间离散化
 
 
 ## 1. 核心架构差异
@@ -49,9 +50,19 @@ i就是tick的值
 ```solidity
 // V2: 使用恒定乘积公式 x * y = k
 // 流动性分布在整个价格曲线
-function addLiquidity(uint amount0, uint amount1) {
-    // 必须按当前价格比例提供
-    // 流动性分布在整个价格范围
+// 给定一些资产的数量和pair对的储备量，返回等量的另一种资产的数量
+// 公式：amountB = amountA * reserveB / reserveA
+function quote(
+    uint amountA,
+    uint reserveA,
+    uint reserveB
+) internal pure returns (uint amountB) {
+    require(amountA > 0, "UniswapV2Library: INSUFFICIENT_AMOUNT");
+    require(
+        reserveA > 0 && reserveB > 0,
+        "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+    );
+    amountB = amountA.mul(reserveB) / reserveA;
 }
 ```
 
@@ -131,7 +142,7 @@ L = √(x * y)  // 流动性是数量的几何平均
 **Tick Spacing**（见 `UniswapV3Factory.sol:26-31`）：
 ```solidity
 // 不同手续费等级对应不同的 tickSpacing
-feeAmountTickSpacing[500] = 10;    // 0.05% 手续费
+feeAmountTickSpacing[500] = 10;    // 0.05% 手续费 对应间隔10，价格也就标成了 0.1%
 feeAmountTickSpacing[3000] = 60;   // 0.3% 手续费
 feeAmountTickSpacing[10000] = 200; // 1% 手续费
 ```
@@ -146,6 +157,10 @@ feeAmountTickSpacing[10000] = 200; // 1% 手续费
 mapping(int24 => Tick.Info) public override ticks;      // Tick 信息
 mapping(int16 => uint256) public override tickBitmap;  // Tick 位图，快速查找
 ```
+TickBitmap.sol:28 根据间距筛选可用tick
+```solidity
+require(tick % tickSpacing == 0); // ensure that the tick is spaced
+```
 
 ### 2.3 流动性添加/移除
 
@@ -155,6 +170,9 @@ mapping(int16 => uint256) public override tickBitmap;  // Tick 位图，快速�
 function addLiquidity(uint amount0, uint amount1) {
     // 按比例计算，不能自定义
 }
+根据当时价格，添加对应的两种token
+公式：amountB = amountA * reserveB / reserveA
+amountB = amountA.mul(reserveB) / reserveA;
 ```
 
 **V3**（`UniswapV3Pool.sol:457-487`）：
