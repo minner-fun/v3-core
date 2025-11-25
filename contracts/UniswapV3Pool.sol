@@ -686,14 +686,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 state.amountSpecifiedRemaining += step.amountOut.toInt256();
                 state.amountCalculated = state.amountCalculated.add((step.amountIn + step.feeAmount).toInt256());
             }
-
+            // 协议费，从总手续费中抽成1/6
             // if the protocol fee is on, calculate how much is owed, decrement feeAmount, and increment protocolFee
             if (cache.feeProtocol > 0) {
                 uint256 delta = step.feeAmount / cache.feeProtocol;
                 step.feeAmount -= delta;
                 state.protocolFee += uint128(delta);
             }
-
+            // 更新全局手续费增长率
             // update global fee tracker
             if (state.liquidity > 0)
                 state.feeGrowthGlobalX128 += FullMath.mulDiv(step.feeAmount, FixedPoint128.Q128, state.liquidity);

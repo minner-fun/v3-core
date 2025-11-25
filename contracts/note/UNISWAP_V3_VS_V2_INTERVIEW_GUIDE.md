@@ -16,13 +16,13 @@
 8. [面试常见问题](#8-面试常见问题)
 
 ---
-## 0. 分析推导
-### 核心原理
-**V2**
+## 1. 基本情况
+### 1.1、核心原理tick
+#### V2
 [desmos上的一个v2曲线](https://www.desmos.com/calculator/7wbvkts2jf)
 价格范围：  正无穷，到，负无穷    全价格范围（0 到 ∞）
 问题在于，真正的代币对的兑换，不可能这么极端。那么再比较极端的范围内，就造成了资金的浪费。   
-**V3**
+#### V3
 V3 把 $\sqrt{P}$ 存储为一个 Q64.96 类型的定点 开方后的价格的取值范围是 
 $$\sqrt{P} => [2^{-128}, 2^{128}]$$   
 为了把价格区间进一步打散，定义：
@@ -86,7 +86,201 @@ struct Slot0 {
 }
 ```
 
+#### 3.2 价格计算优势
+
+**为什么 V3 使用 sqrtPriceX96？**
+
+1. **避免开方运算**：
+   - 在 swap 计算中，需要频繁计算价格
+   - 使用 `sqrtPrice` 可以避免每次开方
+   - 例如：`amountOut = (L * (sqrtPriceNext - sqrtPrice)) / (sqrtPrice * sqrtPriceNext)`
+
+2. **定点数精度**：
+   - `* 2^96` 将浮点数转换为定点数
+   - 避免 Solidity 不支持浮点数的问题
+   - 保持高精度计算
+
+3. **Gas 优化**：
+   - 减少计算步骤
+   - 使用位运算优化
+
+**代码示例**（`SqrtPriceMath.sol`）：
+```solidity
+// 计算 swap 后的新价格
+function getNextSqrtPriceFromInput(
+    uint160 sqrtPX96,
+    uint128 liquidity,
+    uint256 amountIn,
+    bool zeroForOne
+) internal pure returns (uint160 sqrtQX96) {
+    // 使用 sqrtPrice 进行计算，避免开方
+}
+```
+
+### 1.3 Tick 与价格转换
+
+**Tick 到价格**：
+```solidity
+// TickMath.getSqrtRatioAtTick(tick)
+price = 1.0001^tick
+sqrtPrice = sqrt(1.0001^tick) = 1.0001^(tick/2)
+```
+
+**价格到 Tick**：
+```solidity
+// TickMath.getTickAtSqrtRatio(sqrtPriceX96)
+tick = log(price) / log(1.0001)
+```
+
+### 1.4 手续费
+#### 4.1 手续费等级
+
+**V2**：
+- 固定手续费：**0.3%**
+- 所有池子使用相同费率
+
+**V3**：
+- **0.05%**（500 bips）- 稳定币对，低波动
+- **0.3%**（3000 bips）- 标准交易对
+- **1%**（10000 bips）- 高波动交易对
+
+**代码实现**（`UniswapV3Factory.sol:26-31`）：
+```solidity
+constructor() {
+    feeAmountTickSpacing[500] = 10;    // 0.05%
+    feeAmountTickSpacing[3000] = 60;   // 0.3%
+    feeAmountTickSpacing[10000] = 200; // 1%
+}
+```
+
+#### 4.2 手续费计算方式
+
+**V2**(UniswapV2Library.sol)：
+```solidity
+// 简单直接：从输入金额中扣除
+amountOut = amountIn * (1 - fee)
+
+// given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
+// 给定一些资产的数量和pair对的储备量，返回等量的另一种资产的数量
+// 公式：amountOut = amountIn * freeFee * reserveOut / amountIn * freeFee + reserveIn
+// 获取另一种资产的数量，获取报价，手续费为千三，通过恒积做市商公式经过换算得出下面的计算公式
+function getAmountOut(                                                                           // 输入的token量确定，求输出的toke量
+    uint amountIn,
+    uint reserveIn,
+    uint reserveOut
+) internal pure returns (uint amountOut) {
+    require(amountIn > 0, "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT");
+    require(
+        reserveIn > 0 && reserveOut > 0,
+        "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+    );
+    uint amountInWithFee = amountIn.mul(997);
+    uint numerator = amountInWithFee.mul(reserveOut);
+    uint denominator = reserveIn.mul(1000).add(amountInWithFee);
+    amountOut = numerator / denominator;
+}
+```
+协议费，从总手续费中抽成1/6
+```solidity
+// if fee is on, mint liquidity equivalent to 1/6th of the growth in sqrt(k)  
+/*
+初始流动性：L₀ = √k₀
+当前流动性：L₁ = √k₁
+增长量：ΔL = L₁ - L₀
+s_protocol / (s₀ + s_protocol) = (ΔL / 6) / L₁
+*/                                                             //       在研究一下，还有update里的价格语言什么的可以不用管
+function _mintFee(uint112 _reserve0, uint112 _reserve1) private returns (bool feeOn) {
+    address feeTo = IUniswapV2Factory(factory).feeTo();
+    feeOn = feeTo != address(0);
+    uint _kLast = kLast; // gas savings
+    if (feeOn) {
+        if (_kLast != 0) {  // 检查是否已经初始化过
+            uint rootK = Math.sqrt(uint(_reserve0).mul(_reserve1)); // 计算当前的 √k
+            uint rootKLast = Math.sqrt(_kLast);  // 计算上次的 √kLast
+            if (rootK > rootKLast) { // 如果 k 增长了（说明有交易发生）
+                // 计算要铸造的协议费 LP token 数量
+                uint numerator = totalSupply.mul(rootK.sub(rootKLast));
+                uint denominator = rootK.mul(5).add(rootKLast);
+                uint liquidity = numerator / denominator;
+                
+                // 铸造 LP token 给 feeTo 地址
+                if (liquidity > 0) _mint(feeTo, liquidity);
+            }
+        }
+    } else if (_kLast != 0) {
+        kLast = 0;
+    }
+}
+```
+
+
+**V3**（`UniswapV3Pool.sol:682-690`）：
+```solidity
+// 计算手续费
+step.feeAmount = (step.amountIn * fee) / 1e6;
+
+// 协议手续费（可选）
+if (cache.feeProtocol > 0) {
+    uint256 delta = step.feeAmount / cache.feeProtocol;
+    step.feeAmount -= delta;
+    state.protocolFee += uint128(delta);
+}
+
+// 更新全局手续费增长率
+state.feeGrowthGlobalX128 += FullMath.mulDiv(
+    step.feeAmount, 
+    FixedPoint128.Q128, 
+    state.liquidity
+);
+```
+
+#### 4.3 手续费分配机制
+
+**V2**：
+- 手续费直接添加到流动性池
+- LP 通过销毁 LP token 获得手续费
+
+**V3**：
+- 使用**全局手续费增长率**（`feeGrowthGlobal0X128`, `feeGrowthGlobal1X128`）
+- 每个仓位记录上次更新时的增长率
+- 提取时计算差值：`(当前增长率 - 上次增长率) * 流动性 / 2^128`
+
+**代码实现**（`UniswapV3Pool.sol:76-79, 439-442`）：
+```solidity
+uint256 public override feeGrowthGlobal0X128;
+uint256 public override feeGrowthGlobal1X128;
+
+// 在 _updatePosition 中计算仓位应得手续费
+(uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
+    ticks.getFeeGrowthInside(tickLower, tickUpper, tick, 
+                             _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
+
+position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);
+```
+
+**优势**：
+- 不需要为每个仓位单独计算手续费
+- 只在 mint/burn/collect 时更新，节省 gas
+- 使用相对值而非绝对值，避免溢出
+
+#### 4.4 协议手续费
+
+**V3 新增功能**（`UniswapV3Pool.sol:837-845`）：
+```solidity
+function setFeeProtocol(uint8 feeProtocol0, uint8 feeProtocol1) 
+    external override lock onlyFactoryOwner 
+{
+    // 可以设置协议手续费比例（4-10 或 0）
+    // feeProtocol 表示 1/x，例如 4 表示 1/4 = 25%
+}
+```
+
+- 协议可以收取部分手续费（0-25%）
+- 由工厂所有者设置
+- 存储在 `protocolFees` 中
+
 ---
+
 
 ## 2. 流动性机制
 
@@ -108,15 +302,10 @@ L = √(x * y)  // 流动性是数量的几何平均
 - 价格超出区间后，流动性变为单一资产
 - 资本效率高（最高可达 4000 倍）
 
-### 2.2 Tick 系统
-
-
-
 
 ### 2.3 流动性添加/移除
 
 **V2 实现**：
-```solidity
 ```solidity
 // 必须按当前价格比例提供两种 token
 function addLiquidity(uint amount0, uint amount1) {
@@ -178,169 +367,7 @@ function _modifyPosition(ModifyPositionParams memory params) {
 
 ---
 
-## 3. 价格表示与计算
 
-### 3.1 价格存储
-
-**V2**：
-```solidity
-uint112 public reserve0;
-uint112 public reserve1;
-// 价格 = reserve1 / reserve0
-```
-
-**V3**：
-```solidity
-struct Slot0 {
-    uint160 sqrtPriceX96;  // sqrt(price) * 2^96
-    int24 tick;            // 对应的 tick
-}
-```
-
-### 3.2 价格计算优势
-
-**为什么 V3 使用 sqrtPriceX96？**
-
-1. **避免开方运算**：
-   - 在 swap 计算中，需要频繁计算价格
-   - 使用 `sqrtPrice` 可以避免每次开方
-   - 例如：`amountOut = (L * (sqrtPriceNext - sqrtPrice)) / (sqrtPrice * sqrtPriceNext)`
-
-2. **定点数精度**：
-   - `* 2^96` 将浮点数转换为定点数
-   - 避免 Solidity 不支持浮点数的问题
-   - 保持高精度计算
-
-3. **Gas 优化**：
-   - 减少计算步骤
-   - 使用位运算优化
-
-**代码示例**（`SqrtPriceMath.sol`）：
-```solidity
-// 计算 swap 后的新价格
-function getNextSqrtPriceFromInput(
-    uint160 sqrtPX96,
-    uint128 liquidity,
-    uint256 amountIn,
-    bool zeroForOne
-) internal pure returns (uint160 sqrtQX96) {
-    // 使用 sqrtPrice 进行计算，避免开方
-}
-```
-
-### 3.3 Tick 与价格转换
-
-**Tick 到价格**：
-```solidity
-// TickMath.getSqrtRatioAtTick(tick)
-price = 1.0001^tick
-sqrtPrice = sqrt(1.0001^tick) = 1.0001^(tick/2)
-```
-
-**价格到 Tick**：
-```solidity
-// TickMath.getTickAtSqrtRatio(sqrtPriceX96)
-tick = log(price) / log(1.0001)
-```
-
----
-
-## 4. 手续费机制
-
-### 4.1 手续费等级
-
-**V2**：
-- 固定手续费：**0.3%**
-- 所有池子使用相同费率
-
-**V3**：
-- **0.05%**（500 bips）- 稳定币对，低波动
-- **0.3%**（3000 bips）- 标准交易对
-- **1%**（10000 bips）- 高波动交易对
-
-**代码实现**（`UniswapV3Factory.sol:26-31`）：
-```solidity
-constructor() {
-    feeAmountTickSpacing[500] = 10;    // 0.05%
-    feeAmountTickSpacing[3000] = 60;   // 0.3%
-    feeAmountTickSpacing[10000] = 200; // 1%
-}
-```
-
-### 4.2 手续费计算方式
-
-**V2**：
-```solidity
-// 简单直接：从输入金额中扣除
-amountOut = amountIn * (1 - fee)
-```
-
-**V3**（`UniswapV3Pool.sol:682-690`）：
-```solidity
-// 计算手续费
-step.feeAmount = (step.amountIn * fee) / 1e6;
-
-// 协议手续费（可选）
-if (cache.feeProtocol > 0) {
-    uint256 delta = step.feeAmount / cache.feeProtocol;
-    step.feeAmount -= delta;
-    state.protocolFee += uint128(delta);
-}
-
-// 更新全局手续费增长率
-state.feeGrowthGlobalX128 += FullMath.mulDiv(
-    step.feeAmount, 
-    FixedPoint128.Q128, 
-    state.liquidity
-);
-```
-
-### 4.3 手续费分配机制
-
-**V2**：
-- 手续费直接添加到流动性池
-- LP 通过销毁 LP token 获得手续费
-
-**V3**：
-- 使用**全局手续费增长率**（`feeGrowthGlobal0X128`, `feeGrowthGlobal1X128`）
-- 每个仓位记录上次更新时的增长率
-- 提取时计算差值：`(当前增长率 - 上次增长率) * 流动性 / 2^128`
-
-**代码实现**（`UniswapV3Pool.sol:76-79, 439-442`）：
-```solidity
-uint256 public override feeGrowthGlobal0X128;
-uint256 public override feeGrowthGlobal1X128;
-
-// 在 _updatePosition 中计算仓位应得手续费
-(uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
-    ticks.getFeeGrowthInside(tickLower, tickUpper, tick, 
-                             _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
-
-position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);
-```
-
-**优势**：
-- 不需要为每个仓位单独计算手续费
-- 只在 mint/burn/collect 时更新，节省 gas
-- 使用相对值而非绝对值，避免溢出
-
-### 4.4 协议手续费
-
-**V3 新增功能**（`UniswapV3Pool.sol:837-845`）：
-```solidity
-function setFeeProtocol(uint8 feeProtocol0, uint8 feeProtocol1) 
-    external override lock onlyFactoryOwner 
-{
-    // 可以设置协议手续费比例（4-10 或 0）
-    // feeProtocol 表示 1/x，例如 4 表示 1/4 = 25%
-}
-```
-
-- 协议可以收取部分手续费（0-25%）
-- 由工厂所有者设置
-- 存储在 `protocolFees` 中
-
----
 
 ## 5. 预言机系统
 
