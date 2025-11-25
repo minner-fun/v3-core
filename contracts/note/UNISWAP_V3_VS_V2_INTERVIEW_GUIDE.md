@@ -17,70 +17,48 @@
 
 ---
 ## 0. 分析推导
-### V2的情况
+### 核心原理
+**V2**
 [desmos上的一个v2曲线](https://www.desmos.com/calculator/7wbvkts2jf)
-价格范围：  正无穷，到，负无穷   
+价格范围：  正无穷，到，负无穷    全价格范围（0 到 ∞）
 问题在于，真正的代币对的兑换，不可能这么极端。那么再比较极端的范围内，就造成了资金的浪费。   
-### v3的情况
+**V3**
 V3 把 $\sqrt{P}$ 存储为一个 Q64.96 类型的定点 开方后的价格的取值范围是 
 $$\sqrt{P} => [2^{-128}, 2^{128}]$$   
 为了把价格区间进一步打散，定义：
 $$p(i) = 1.0001^i$$
-所以：
+所以：   
 $$\sqrt{p(i)} = \sqrt{1.0001}^i = 1.0001 ^{\frac{i}{2}}$$   
-也就是说：
+也就是说：   
 $$1.0001 ^{\frac{i}{2}} => [2^{-128}, 2^{128}] $$
-i 的取值范围为：
+i 的取值范围为：   
 $$[log_{1.0001}2^{-128}, log_{1.0001}{2^{128}}] = [-887272, 887272]$$
 i就是tick的值  
 > 先界定价格范围，在通过取价格的对数的方式，巧妙的把流动性区间离散化
 
-
-## 1. 核心架构差异
-
-### 1.1 流动性分布方式
-
-| 特性 | V2 | V3 |
-|------|----|----|
-| **流动性分布** | 全价格范围（0 到 ∞） | 可自定义价格区间 `[tickLower, tickUpper]` |
-| **LP 灵活性** | 固定比例（如 50/50） | 可选择价格区间和比例 |
-| **资金利用率** | 低（大量资金在极端价格闲置） | 高（资金集中在交易活跃区间） |
-
-**V2 实现**：
+**Tick Spacing**（见 `UniswapV3Factory.sol:26-31`）：
 ```solidity
-// V2: 使用恒定乘积公式 x * y = k
-// 流动性分布在整个价格曲线
-// 给定一些资产的数量和pair对的储备量，返回等量的另一种资产的数量
-// 公式：amountB = amountA * reserveB / reserveA
-function quote(
-    uint amountA,
-    uint reserveA,
-    uint reserveB
-) internal pure returns (uint amountB) {
-    require(amountA > 0, "UniswapV2Library: INSUFFICIENT_AMOUNT");
-    require(
-        reserveA > 0 && reserveB > 0,
-        "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
-    );
-    amountB = amountA.mul(reserveB) / reserveA;
-}
+// 不同手续费等级对应不同的 tickSpacing
+feeAmountTickSpacing[500] = 10;    // 0.05% 手续费 对应间隔10，价格也就标成了 0.1%
+feeAmountTickSpacing[3000] = 60;   // 0.3% 手续费
+feeAmountTickSpacing[10000] = 200; // 1% 手续费
 ```
 
-**V3 实现**（见 `UniswapV3Pool.sol:306-372`）：
+**为什么需要 Tick Spacing？**
+- 减少可用的 tick 数量，降低 gas 成本
+- 防止流动性过于分散
+- 不同手续费等级对应不同的市场波动性
+
+**代码实现**（`UniswapV3Pool.sol:93-95`）：
 ```solidity
-// V3: 集中流动性，指定价格区间
-function _modifyPosition(ModifyPositionParams memory params) {
-    // LP 可以指定 tickLower 和 tickUpper
-    // 流动性只在指定区间内有效
-    if (_slot0.tick < params.tickLower) {
-        // 当前价格低于区间，只需要 token0
-    } else if (_slot0.tick < params.tickUpper) {
-        // 当前价格在区间内，需要两种 token
-    } else {
-        // 当前价格高于区间，只需要 token1
-    }
-}
+mapping(int24 => Tick.Info) public override ticks;      // Tick 信息
+mapping(int16 => uint256) public override tickBitmap;  // Tick 位图，快速查找
 ```
+TickBitmap.sol:28 根据间距筛选可用tick
+```solidity
+require(tick % tickSpacing == 0); // ensure that the tick is spaced
+```
+
 
 ### 1.2 价格表示方式
 
@@ -132,39 +110,13 @@ L = √(x * y)  // 流动性是数量的几何平均
 
 ### 2.2 Tick 系统
 
-**V3 核心创新**：将连续价格空间离散化为 Tick
 
-**Tick 定义**：
-- 价格公式：`price = 1.0001^tick`
-- Tick 范围：`MIN_TICK = -887272` 到 `MAX_TICK = 887272`
-- 每个 tick 代表 0.01% 的价格变化（1 bips）
 
-**Tick Spacing**（见 `UniswapV3Factory.sol:26-31`）：
-```solidity
-// 不同手续费等级对应不同的 tickSpacing
-feeAmountTickSpacing[500] = 10;    // 0.05% 手续费 对应间隔10，价格也就标成了 0.1%
-feeAmountTickSpacing[3000] = 60;   // 0.3% 手续费
-feeAmountTickSpacing[10000] = 200; // 1% 手续费
-```
-
-**为什么需要 Tick Spacing？**
-- 减少可用的 tick 数量，降低 gas 成本
-- 防止流动性过于分散
-- 不同手续费等级对应不同的市场波动性
-
-**代码实现**（`UniswapV3Pool.sol:93-95`）：
-```solidity
-mapping(int24 => Tick.Info) public override ticks;      // Tick 信息
-mapping(int16 => uint256) public override tickBitmap;  // Tick 位图，快速查找
-```
-TickBitmap.sol:28 根据间距筛选可用tick
-```solidity
-require(tick % tickSpacing == 0); // ensure that the tick is spaced
-```
 
 ### 2.3 流动性添加/移除
 
-**V2**：
+**V2 实现**：
+```solidity
 ```solidity
 // 必须按当前价格比例提供两种 token
 function addLiquidity(uint amount0, uint amount1) {
@@ -173,9 +125,25 @@ function addLiquidity(uint amount0, uint amount1) {
 根据当时价格，添加对应的两种token
 公式：amountB = amountA * reserveB / reserveA
 amountB = amountA.mul(reserveB) / reserveA;
-```
 
-**V3**（`UniswapV3Pool.sol:457-487`）：
+// V2: 使用恒定乘积公式 x * y = k
+// 流动性分布在整个价格曲线
+// 给定一些资产的数量和pair对的储备量，返回等量的另一种资产的数量
+// 公式：amountB = amountA * reserveB / reserveA
+function quote(
+    uint amountA,
+    uint reserveA,
+    uint reserveB
+) internal pure returns (uint amountB) {
+    require(amountA > 0, "UniswapV2Library: INSUFFICIENT_AMOUNT");
+    require(
+        reserveA > 0 && reserveB > 0,
+        "UniswapV2Library: INSUFFICIENT_LIQUIDITY"
+    );
+    amountB = amountA.mul(reserveB) / reserveA;
+}
+```
+**V3 实现**（见 `UniswapV3Pool.sol:306-372  457-487`）：
 ```solidity
 function mint(
     address recipient,
@@ -187,6 +155,19 @@ function mint(
     // 根据当前价格和区间，计算需要提供的 token 数量
     // 如果价格在区间内，需要两种 token
     // 如果价格在区间外，只需要一种 token
+}
+
+// V3: 集中流动性，指定价格区间
+function _modifyPosition(ModifyPositionParams memory params) {
+    // LP 可以指定 tickLower 和 tickUpper
+    // 流动性只在指定区间内有效
+    if (_slot0.tick < params.tickLower) {
+        // 当token0价格低于区间，只需要 token0
+    } else if (_slot0.tick < params.tickUpper) {
+        // 当前价格在区间内，需要两种 token
+    } else {
+        // 当token0价格高于区间，只需要 token1
+    }
 }
 ```
 

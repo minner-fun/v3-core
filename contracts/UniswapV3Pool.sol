@@ -122,7 +122,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         maxLiquidityPerTick = Tick.tickSpacingToMaxLiquidityPerTick(_tickSpacing);
     }
 
-    /// @dev Common checks for valid tick inputs.
+    /// @dev Common checks for valid tick inputs. 检查tick是否合法
     function checkTicks(int24 tickLower, int24 tickUpper) private pure {
         require(tickLower < tickUpper, 'TLU');
         require(tickLower >= TickMath.MIN_TICK, 'TLM');
@@ -134,9 +134,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         return uint32(block.timestamp); // truncation is desired
     }
 
-    /// @dev Get the pool's balance of token0
+    /// @dev Get the pool's balance of token0 获取池子的token0余额
     /// @dev This function is gas optimized to avoid a redundant extcodesize check in addition to the returndatasize
-    /// check
+    /// check 
     function balance0() private view returns (uint256) {
         (bool success, bytes memory data) =
             token0.staticcall(abi.encodeWithSelector(IERC20Minimal.balanceOf.selector, address(this)));
@@ -298,7 +298,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int128 liquidityDelta;
     }
 
-    /// @dev Effect some changes to a position 
+    /// @dev Effect some changes to a position  修改流动性
     /// @param params the position details and the change to the position's liquidity to effect
     /// @return position a storage pointer referencing the position with the given owner and tick range
     /// @return amount0 the amount of token0 owed to the pool, negative if the pool should pay the recipient
@@ -312,9 +312,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             int256 amount1
         )
     {
-        checkTicks(params.tickLower, params.tickUpper);
+        checkTicks(params.tickLower, params.tickUpper);  // 基本检查，tick是否超出边界
 
-        Slot0 memory _slot0 = slot0; // SLOAD for gas optimization
+        Slot0 memory _slot0 = slot0; // SLOAD for gas optimization 加载slot0
 
         position = _updatePosition(
             params.owner,
@@ -328,27 +328,27 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             if (_slot0.tick < params.tickLower) {
                 // current tick is below the passed range; liquidity can only become in range by crossing from left to
                 // right, when we'll need _more_ token0 (it's becoming more valuable) so user must provide it
-                amount0 = SqrtPriceMath.getAmount0Delta(
-                    TickMath.getSqrtRatioAtTick(params.tickLower),
-                    TickMath.getSqrtRatioAtTick(params.tickUpper),
-                    params.liquidityDelta
+                // 当前tick低于传入的范围；流动性只能通过从左到右跨越范围来成为范围内，当我们需要更多的token0（它变得更值钱）时，用户必须提供它
+                amount0 = SqrtPriceMath.getAmount0Delta(  // 获取token0的delta
+                    TickMath.getSqrtRatioAtTick(params.tickLower),  // 获取下界tick的sqrt价格
+                    TickMath.getSqrtRatioAtTick(params.tickUpper),  // 获取上界tick的sqrt价格
+                    params.liquidityDelta  // 流动性delta
                 );
-            } else if (_slot0.tick < params.tickUpper) {
-                // current tick is inside the passed range
-                uint128 liquidityBefore = liquidity; // SLOAD for gas optimization
+            } else if (_slot0.tick < params.tickUpper) {  // 当前tick在传入的范围之内
+                // current tick is inside the passed range 当前tick在传入的范围之内
+                uint128 liquidityBefore = liquidity; // SLOAD for gas optimization 加载流动性
 
-                // write an oracle entry
-                (slot0.observationIndex, slot0.observationCardinality) = observations.write(
-                    _slot0.observationIndex,
-                    _blockTimestamp(),
-                    _slot0.tick,
-                    liquidityBefore,
-                    _slot0.observationCardinality,
-                    _slot0.observationCardinalityNext
+                // write an oracle entry 写入一个预言机条目
+                (slot0.observationIndex, slot0.observationCardinality) = observations.write(  // 写入预言机条目
+                    _slot0.observationIndex,  // 观察索引
+                    _blockTimestamp(),  // 当前时间
+                    _slot0.tick,  // 当前tick
+                    liquidityBefore,  // 之前的流动性
+                    _slot0.observationCardinality,  // 观察容量
+                    _slot0.observationCardinalityNext  // 下一个观察容量
                 );
-
                 amount0 = SqrtPriceMath.getAmount0Delta(
-                    _slot0.sqrtPriceX96,
+                    _slot0.sqrtPriceX96,  // 当前sqrt价格
                     TickMath.getSqrtRatioAtTick(params.tickUpper),
                     params.liquidityDelta
                 );
@@ -362,6 +362,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             } else {
                 // current tick is above the passed range; liquidity can only become in range by crossing from right to
                 // left, when we'll need _more_ token1 (it's becoming more valuable) so user must provide it
+                // 当前tick高于传入的范围；流动性只能通过从右到左跨越范围来成为范围内，当我们需要更多的token1（它变得更值钱）时，用户必须提供它
                 amount1 = SqrtPriceMath.getAmount1Delta(
                     TickMath.getSqrtRatioAtTick(params.tickLower),
                     TickMath.getSqrtRatioAtTick(params.tickUpper),
@@ -371,11 +372,11 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         }
     }
 
-    /// @dev Gets and updates a position with the given liquidity delta
-    /// @param owner the owner of the position
-    /// @param tickLower the lower tick of the position's tick range
-    /// @param tickUpper the upper tick of the position's tick range
-    /// @param tick the current tick, passed to avoid sloads
+    /// @dev Gets and updates a position with the given liquidity delta 更新仓位
+    /// @param owner the owner of the position 仓位所有者
+    /// @param tickLower the lower tick of the position's tick range 下界tick
+    /// @param tickUpper the upper tick of the position's tick range 上界tick
+    /// @param tick the current tick, passed to avoid sloads 当前tick，避免sloads
     function _updatePosition(
         address owner,
         int24 tickLower,
@@ -383,27 +384,27 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         int128 liquidityDelta,
         int24 tick
     ) private returns (Position.Info storage position) {
-        position = positions.get(owner, tickLower, tickUpper);
+        position = positions.get(owner, tickLower, tickUpper);  // 获取仓位
 
-        uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128; // SLOAD for gas optimization
-        uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; // SLOAD for gas optimization
+        uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128; // SLOAD for gas optimization 加载feeGrowthGlobal0X128
+        uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; // SLOAD for gas optimization 加载feeGrowthGlobal1X128
 
-        // if we need to update the ticks, do it
+        // if we need to update the ticks, do it 如果需要更新tick，则更新
         bool flippedLower;
         bool flippedUpper;
         if (liquidityDelta != 0) {
             uint32 time = _blockTimestamp();
-            (int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128) =
-                observations.observeSingle(
+            (int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128) =  // 观察单个tick的累计值
+                observations.observeSingle(  // 观察单个tick
                     time,
                     0,
-                    slot0.tick,
-                    slot0.observationIndex,
-                    liquidity,
-                    slot0.observationCardinality
+                    slot0.tick,  // 当前tick
+                    slot0.observationIndex,  // 观察索引
+                    liquidity,  // 流动性
+                    slot0.observationCardinality  // 观察容量
                 );
 
-            flippedLower = ticks.update(
+            flippedLower = ticks.update(  // 更新tick   
                 tickLower,
                 tick,
                 liquidityDelta,
@@ -415,7 +416,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                 false,
                 maxLiquidityPerTick
             );
-            flippedUpper = ticks.update(
+            flippedUpper = ticks.update(  // 更新tick
                 tickUpper,
                 tick,
                 liquidityDelta,
@@ -429,25 +430,25 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             );
 
             if (flippedLower) {
-                tickBitmap.flipTick(tickLower, tickSpacing);
+                tickBitmap.flipTick(tickLower, tickSpacing);  // 翻转tick
             }
             if (flippedUpper) {
-                tickBitmap.flipTick(tickUpper, tickSpacing);
+                tickBitmap.flipTick(tickUpper, tickSpacing);  // 翻转tick
             }
         }
 
         (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) =
-            ticks.getFeeGrowthInside(tickLower, tickUpper, tick, _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);
+            ticks.getFeeGrowthInside(tickLower, tickUpper, tick, _feeGrowthGlobal0X128, _feeGrowthGlobal1X128);  // 获取内部手续费增长率
 
-        position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);
+        position.update(liquidityDelta, feeGrowthInside0X128, feeGrowthInside1X128);  // 更新仓位
 
-        // clear any tick data that is no longer needed
+        // clear any tick data that is no longer needed 清除不再需要的tick数据
         if (liquidityDelta < 0) {
             if (flippedLower) {
-                ticks.clear(tickLower);
+                ticks.clear(tickLower);  // 清除tick
             }
             if (flippedUpper) {
-                ticks.clear(tickUpper);
+                ticks.clear(tickUpper);  // 清除tick
             }
         }
     }
@@ -485,8 +486,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
         uint256 balance0Before;
         uint256 balance1Before;
-        if (amount0 > 0) balance0Before = balance0();
-        if (amount1 > 0) balance1Before = balance1();
+        if (amount0 > 0) balance0Before = balance0();  // 获取池子的token0余额
+        if (amount1 > 0) balance1Before = balance1();  // 获取池子的token1余额
         IUniswapV3MintCallback(msg.sender).uniswapV3MintCallback(amount0, amount1, data);
         if (amount0 > 0) require(balance0Before.add(amount0) <= balance0(), 'M0');
         if (amount1 > 0) require(balance1Before.add(amount1) <= balance1(), 'M1');
