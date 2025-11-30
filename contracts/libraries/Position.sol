@@ -11,7 +11,7 @@ import './LiquidityMath.sol';
 library Position {
     // info stored for each user's position
     struct Info {
-        // the amount of liquidity owned by this position
+        // the amount of liquidity owned by this position 该仓位拥有的流动性
         uint128 liquidity;
         // fee growth per unit of liquidity as of the last update to liquidity or fees owed
         uint256 feeGrowthInside0LastX128;
