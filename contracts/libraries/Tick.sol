@@ -13,26 +13,26 @@ library Tick {
     using LowGasSafeMath for int256;
     using SafeCast for int256;
 
-    // info stored for each initialized individual tick
+    // info stored for each initialized individual tick 
     struct Info {
-        // the total position liquidity that references this tick
+        // the total position liquidity that references this tick 总流动性
         uint128 liquidityGross;
-        // amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left),
+        // amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left), 净流动性
         int128 liquidityNet;
-        // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)
-        // only has relative meaning, not absolute — the value depends on when the tick is initialized
+        // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick) 手续费增长率
+        // only has relative meaning, not absolute — the value depends on when the tick is initialized 只有相对意义，没有绝对意义——值取决于何时初始化
         uint256 feeGrowthOutside0X128;
         uint256 feeGrowthOutside1X128;
-        // the cumulative tick value on the other side of the tick
+        // the cumulative tick value on the other side of the tick 另一个侧面的累计 tick 值
         int56 tickCumulativeOutside;
-        // the seconds per unit of liquidity on the _other_ side of this tick (relative to the current tick)
-        // only has relative meaning, not absolute — the value depends on when the tick is initialized
+        // the seconds per unit of liquidity on the _other_ side of this tick (relative to the current tick) 另一个侧面的每流动性秒数
+        // only has relative meaning, not absolute — the value depends on when the tick is initialized 只有相对意义，没有绝对意义——值取决于何时初始化
         uint160 secondsPerLiquidityOutsideX128;
-        // the seconds spent on the other side of the tick (relative to the current tick)
+        // the seconds spent on the other side of the tick (relative to the current tick) 另一个侧面的秒数
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
         uint32 secondsOutside;
-        // true iff the tick is initialized, i.e. the value is exactly equivalent to the expression liquidityGross != 0
-        // these 8 bits are set to prevent fresh sstores when crossing newly initialized ticks
+        // true iff the tick is initialized, i.e. the value is exactly equivalent to the expression liquidityGross != 0 如果 tick 已初始化，则值等于 liquidityGross != 0
+        // these 8 bits are set to prevent fresh sstores when crossing newly initialized ticks 这些 8 位用于防止在跨越新初始化的 tick 时进行新的存储
         bool initialized;
     }
 
