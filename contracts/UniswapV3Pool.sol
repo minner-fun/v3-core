@@ -54,20 +54,20 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     uint128 public immutable override maxLiquidityPerTick;
 
     struct Slot0 {
-        // the current price 当前的 $\sqrt{P}$
+        // the current price 当前的 $\sqrt{P}$ 平方根价格
         uint160 sqrtPriceX96;
-        // the current tick 
+        // the current tick 当前的tick
         int24 tick;
-        // the most-recently updated index of the observations array
+        // the most-recently updated index of the observations array 最近更新的观察数组索引
         uint16 observationIndex;
-        // the current maximum number of observations that are being stored
+        // the current maximum number of observations that are being stored 当前存储的观察数量最大值
         uint16 observationCardinality;
-        // the next maximum number of observations to store, triggered in observations.write
+        // the next maximum number of observations to store, triggered in observations.write 下一个要存储的观察数量最大值，在observations.write触发
         uint16 observationCardinalityNext;
-        // the current protocol fee as a percentage of the swap fee taken on withdrawal
+        // the current protocol fee as a percentage of the swap fee taken on withdrawal 当前协议费作为交换费的一部分，以百分比表示
         // represented as an integer denominator (1/x)%
         uint8 feeProtocol;
-        // whether the pool is locked
+        // whether the pool is locked 池是否锁定
         bool unlocked;
     }
     /// @inheritdoc IUniswapV3PoolState
