@@ -549,7 +549,7 @@ function get(
 ### 8.0 吸收总结
 Position：用户添加流动性就叫做添加一个position
 ticks：记录的是用户添加的流动性的边界的信息
-
+tickBitmap: 256个tick为一个word的每一位bit，先找word，再找bit
 ### 8.1 场景：三个用户添加流动性
 
 假设 ETH/USDC 池子，当前价格 $2500：
