@@ -39,6 +39,31 @@ i就是tick的值
 所以，原本存在uint160 类型的2^96这个数。用Q64.96眼光来解读就成了1。因为后面的96个0为当成了小数部分。
 反过来说，对于uint160 sqrtPriceX96;表示开方后的价格乘以2^96之后才能是一个unit160类型。所以也就是根据这个定义，才断定 $\sqrt{P}$是Q64.96类型
 
+## 整理
+
+```solidity
+int24 internal constant MIN_TICK = -887272;
+int24 internal constant MAX_TICK = -MIN_TICK;
+```
+限定了$$ MIN_TICK => [-887272, 887272] $$
+因为：
+$$p(i) = 1.0001^i => p(i) = [1.0001^-887272, 1.0001^887272]$$
+也就是：
+
+$$\sqrt{p(i)} = \sqrt{1.0001}^i = 1.0001 ^{\frac{i}{2}} = [1.0001^-443636, 1.0001^443636]$$   
+
+
+```solidity
+struct Slot0 {
+    uint160 sqrtPriceX96;
+    int24 tick;
+    ...
+}
+```
+然后，把 $\sqrt{P}$ 存储为一个 Q64.96 类型的定点数。sqrtPrice 乘以 2^96后存储在uint160无符号整形中
+
+
+
 **Tick Spacing**（见 `UniswapV3Factory.sol:26-31`）：
 ```solidity
 // 不同手续费等级对应不同的 tickSpacing
